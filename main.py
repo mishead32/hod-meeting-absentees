@@ -69,10 +69,24 @@ MEET_OAUTH_REFRESH_TOKEN = os.environ.get("MEET_OAUTH_REFRESH_TOKEN", "").strip(
 
 # "Meet Name=Slack Name" pairs for people whose Google name differs from Slack.
 MEET_NAME_ALIASES = {}
-for _pair in os.environ.get("MEET_NAME_ALIASES", "").split(","):
+for _pair in os.environ.get(
+    "MEET_NAME_ALIASES",
+    "Arun Sharma=Arun,Santosh K=HR Santosh,Priyanka Thakur=EA",
+).split(","):
     if "=" in _pair:
         _meet, _slack = _pair.split("=", 1)
         MEET_NAME_ALIASES[_meet.strip().lower()] = _slack.strip().lower()
+
+# Meet participants who are NOT HODs (boss, guests, non-members) -- they are
+# simply ignored, and not flagged in the admin note.
+MEET_IGNORED_NAMES = {
+    n.strip().lower()
+    for n in os.environ.get(
+        "MEET_IGNORED_NAMES",
+        "Gurmeet Singh,Gurmeet Singh Arora,Lakhshmi Sharma,Lakshmi Sharma,Sakshi",
+    ).split(",")
+    if n.strip()
+}
 
 MEETING_TIME_LABEL = os.environ.get("MEETING_TIME_LABEL", "9:50 AM")
 BOT_SENDER_NAME = os.environ.get("BOT_SENDER_NAME", "Core Team | GCS Group").strip()
@@ -280,7 +294,7 @@ def run_meeting_check():
                 matched_meet_names.add(rn if rn in attendees else dn)
                 continue
             absentees.append((uid, real_name or display_name))
-        unmatched = attendees - matched_meet_names
+        unmatched = attendees - matched_meet_names - MEET_IGNORED_NAMES
         if unmatched:
             summary_extra = (
                 "\n\nNote (admin): these Meet names could not be matched to "
