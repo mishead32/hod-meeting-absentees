@@ -1,7 +1,0 @@
-# Secrets - NEVER commit these
-.env
-
-# Local junk
-__pycache__/
-*.pyc
-.vercel/
