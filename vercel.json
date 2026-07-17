@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "main.py": {
+      "maxDuration": 120
+    }
+  },
+  "crons": [
+    {
+      "path": "/meeting",
+      "schedule": "0 5 * * 1-6"
+    }
+  ]
+}
