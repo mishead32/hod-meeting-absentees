@@ -109,21 +109,24 @@ SPA_TEAM_KEYWORDS = {
 }
 SPA_TEAM_MANAGER_NAME = os.environ.get("SPA_TEAM_MANAGER_NAME", "Deepmala Basu").strip().lower()
 
-MEETING_TIME_LABEL = os.environ.get("MEETING_TIME_LABEL", "9:50 AM")
+MEETING_TIME_LABEL = os.environ.get("MEETING_TIME_LABEL", "9:50 AM - 10:05 AM")
 BOT_SENDER_NAME = os.environ.get("BOT_SENDER_NAME", "Core Team | GCS Group").strip()
 CRON_SECRET = os.environ.get("CRON_SECRET", "").strip()
 DRY_RUN = os.environ.get("DRY_RUN", "").strip() in ("1", "true", "yes")
 
 ABSENT_TEMPLATE = (
     "Dear {name},\n\n"
-    "Our records indicate that you did not join the *Daily HOD Meeting held "
-    "at {time} today ({date})* on Google Meet.\n\n"
-    "CMD Sir would like to understand if there are any challenges being "
-    "faced in attending the daily meeting. The meeting plays an important "
-    "role in ensuring effective coordination and smooth functioning across "
-    "all departments.\n\n"
-    "Kindly ensure regular and timely attendance of the Daily HOD Meeting.\n\n"
-    "Regards,\n"
+    "Your presence was missed at Daily HoD Meeting ({date}), "
+    "scheduled from {time} on Google Meet. This meeting is essential for "
+    "discussing key updates, issues, and challenges across departments.\n\n"
+    "We understand that unforeseen circumstances can arise. In such cases, "
+    "we would appreciate your informing the Core Team of your absence before "
+    "the meeting. *Please note that absence without prior intimation "
+    "attracts a deduction of -10 points from the weekly score.*\n\n"
+    "Thank you for your attention to this matter. We look forward to your "
+    "participation in the upcoming meetings and appreciate your commitment "
+    "to our shared goals.\n\n"
+    "Thanks & Regards\n\n"
     "Core Team\n"
     "GCS Group"
 )
