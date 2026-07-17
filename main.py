@@ -88,6 +88,27 @@ MEET_IGNORED_NAMES = {
     if n.strip()
 }
 
+# --- Spa Kora team rule -----------------------------------------------------
+# Deepmala Basu (manager, in HOD group), Lakshmi (Slack: Sakshi, not in HOD
+# group) and Anu (U0BDX6D9M1N) are one team. If ANY of them joins the meeting
+# (under their own name or any "spa kora"-style name), the whole team counts
+# as present. If NONE of them joins, only the manager (Deepmala) is marked
+# absent and gets the DM.
+SPA_TEAM_MEET_NAMES = {
+    n.strip().lower()
+    for n in os.environ.get(
+        "SPA_TEAM_MEET_NAMES",
+        "Deepmala Basu,Lakhshmi Sharma,Lakshmi Sharma,Sakshi,Anu",
+    ).split(",")
+    if n.strip()
+}
+SPA_TEAM_KEYWORDS = {
+    n.strip().lower()
+    for n in os.environ.get("SPA_TEAM_KEYWORDS", "spa kora,spakora").split(",")
+    if n.strip()
+}
+SPA_TEAM_MANAGER_NAME = os.environ.get("SPA_TEAM_MANAGER_NAME", "Deepmala Basu").strip().lower()
+
 MEETING_TIME_LABEL = os.environ.get("MEETING_TIME_LABEL", "9:50 AM")
 BOT_SENDER_NAME = os.environ.get("BOT_SENDER_NAME", "Core Team | GCS Group").strip()
 CRON_SECRET = os.environ.get("CRON_SECRET", "").strip()
@@ -280,6 +301,13 @@ def run_meeting_check():
     attendees, record_found = get_todays_meet_participants()
     logger.info("Meet attendees today: %s (record_found=%s)", sorted(attendees), record_found)
 
+    # Spa Kora team: present if any team member / team-named guest joined.
+    spa_team_attendees = {
+        a for a in attendees
+        if a in SPA_TEAM_MEET_NAMES or any(k in a for k in SPA_TEAM_KEYWORDS)
+    }
+    spa_team_present = bool(spa_team_attendees)
+
     summary_extra = ""
     absentees = []  # (uid, name)
     matched_meet_names = set()
@@ -293,8 +321,13 @@ def run_meeting_check():
             if rn in attendees or dn in attendees:
                 matched_meet_names.add(rn if rn in attendees else dn)
                 continue
+            # Manager of the Spa Kora team: covered if anyone from her team joined.
+            if rn == SPA_TEAM_MANAGER_NAME and spa_team_present:
+                logger.info("Spa Kora team present via %s -- %s counted present.",
+                            sorted(spa_team_attendees), real_name)
+                continue
             absentees.append((uid, real_name or display_name))
-        unmatched = attendees - matched_meet_names - MEET_IGNORED_NAMES
+        unmatched = attendees - matched_meet_names - MEET_IGNORED_NAMES - spa_team_attendees
         if unmatched:
             summary_extra = (
                 "\n\nNote (admin): these Meet names could not be matched to "
