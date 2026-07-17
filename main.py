@@ -145,6 +145,25 @@ ALL_PRESENT_TEMPLATE = (
     "GCS Group"
 )
 
+WEEKLY_MEETING_TEMPLATE = (
+    "Dear {name},\n\n"
+    "Kindly apply the negative scoring for below employees as they have not "
+    "joined the daily HOD meeting ({time}) (From {from_date} To {to_date})\n\n"
+    "{lines}\n\n"
+    "Thanks,\n"
+    "Core Team\n"
+    "GCS Group"
+)
+
+WEEKLY_MEETING_ALL_CLEAR = (
+    "Dear {name},\n\n"
+    "Good news -- all HODs joined the daily HOD meeting ({time}) every day "
+    "(From {from_date} To {to_date}). No negative scoring is required.\n\n"
+    "Thanks,\n"
+    "Core Team\n"
+    "GCS Group"
+)
+
 NO_RECORD_TEMPLATE = (
     "Dear {name},\n\n"
     "No Google Meet record was found for today's {time} HOD meeting ({date}). "
@@ -286,6 +305,142 @@ def get_todays_meet_participants():
     return attendees, True
 
 
+def get_meet_attendees_by_day(start_date, end_date):
+    """Returns ({date: set of lowercase attendee names}, for days that had a
+    meeting) between start_date and end_date inclusive (IST dates)."""
+    tz = ZoneInfo(LOCAL_TIMEZONE)
+    start_utc = (
+        datetime.combine(start_date, dtime.min, tzinfo=tz)
+        .astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
+    end_utc = (
+        datetime.combine(end_date, dtime.max, tzinfo=tz)
+        .astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
+    space = _meet_api("spaces/" + MEET_MEETING_CODE)
+    space_name = space["name"]
+    records = _meet_api(
+        "conferenceRecords",
+        {"filter": 'space.name = "%s" AND start_time >= "%s" AND start_time <= "%s"'
+                   % (space_name, start_utc, end_utc)},
+    ).get("conferenceRecords", [])
+
+    by_day = {}
+    for rec in records:
+        # startTime like 2026-07-13T04:21:33.000Z
+        st = rec.get("startTime", "").replace("Z", "+00:00")
+        try:
+            rec_day = datetime.fromisoformat(st).astimezone(tz).date()
+        except ValueError:
+            continue
+        day_set = by_day.setdefault(rec_day, set())
+        page_token = None
+        while True:
+            params = {"pageSize": 250}
+            if page_token:
+                params["pageToken"] = page_token
+            data = _meet_api(rec["name"] + "/participants", params)
+            for p in data.get("participants", []):
+                who = (
+                    p.get("signedinUser", {}).get("displayName")
+                    or p.get("anonymousUser", {}).get("displayName")
+                    or p.get("phoneUser", {}).get("displayName")
+                    or ""
+                ).strip().lower()
+                if who:
+                    day_set.add(MEET_NAME_ALIASES.get(who, who))
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+    return by_day
+
+
+def run_weekly_meeting():
+    """Monday: counts of missed meetings for last Monday..Saturday, sent to
+    the admins (no DMs to individual HODs)."""
+    from datetime import timedelta
+
+    tz = ZoneInfo(LOCAL_TIMEZONE)
+    today = datetime.now(tz).date()
+    last_monday = today - timedelta(days=today.weekday() + 7)
+    last_saturday = last_monday + timedelta(days=5)
+    from_str = last_monday.strftime("%d-%m-%Y")
+    to_str = last_saturday.strftime("%d-%m-%Y")
+
+    by_day = get_meet_attendees_by_day(last_monday, last_saturday)
+    meeting_days = sorted(by_day.keys())
+    logger.info("Weekly meeting summary %s to %s -- meetings held on %s",
+                from_str, to_str, meeting_days)
+
+    missing = []  # (name, count)
+    if meeting_days:
+        for uid in get_channel_members(HOD_CHANNEL_ID):
+            is_human, real_name, display_name = get_user_profile(uid)
+            if not is_human or uid in EXCLUDED_USER_IDS:
+                continue
+            rn = (real_name or "").strip().lower()
+            dn = (display_name or "").strip().lower()
+            count = 0
+            for d in meeting_days:
+                attendees = by_day[d]
+                if rn in attendees or dn in attendees:
+                    continue
+                if rn == SPA_TEAM_MANAGER_NAME and any(
+                    a in SPA_TEAM_MEET_NAMES or any(k in a for k in SPA_TEAM_KEYWORDS)
+                    for a in attendees
+                ):
+                    continue
+                count += 1
+            if count > 0:
+                missing.append((real_name or display_name, count))
+        missing.sort(key=lambda x: (-x[1], x[0]))
+
+    if missing:
+        lines = "\n".join(
+            "%d. %s - %s" % (
+                i + 1, name,
+                ("%d days meetings were missed" % count) if count > 1
+                else "1 day meeting was missed",
+            )
+            for i, (name, count) in enumerate(missing)
+        )
+        if len(meeting_days) < 6:
+            lines += "\n\n(Meeting was held on %d day(s) in this period)" % len(meeting_days)
+        template = WEEKLY_MEETING_TEMPLATE
+    else:
+        lines = ""
+        template = WEEKLY_MEETING_ALL_CLEAR
+
+    sent = []
+    errors = []
+    for rid, rname in SUMMARY_RECIPIENTS:
+        rid, rname = rid.strip(), rname.strip()
+        text = template.format(
+            name=rname, time=MEETING_TIME_LABEL,
+            from_date=from_str, to_date=to_str, lines=lines,
+        )
+        if DRY_RUN:
+            sent.append(rname + " (dry-run)")
+            continue
+        try:
+            send_text_to(rid, text)
+            sent.append(rname)
+        except SlackApiError as e:
+            errors.append(rname + ": " + str(e))
+
+    result = {
+        "status": "ok",
+        "period": from_str + " to " + to_str,
+        "meeting_days": [str(d) for d in meeting_days],
+        "missed_counts": [{"name": n, "missed_meetings": c} for n, c in missing],
+        "sent_to": sent,
+        "errors": errors,
+        "dry_run": DRY_RUN,
+    }
+    logger.info("Weekly meeting summary result: %s", result)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Main check
 # ---------------------------------------------------------------------------
@@ -401,6 +556,19 @@ def meeting():
         return jsonify(run_meeting_check())
     except Exception as e:
         logger.exception("run_meeting_check failed")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/weekly", methods=["GET", "POST"])
+def weekly():
+    if CRON_SECRET:
+        auth = request.headers.get("Authorization", "")
+        if auth != "Bearer " + CRON_SECRET:
+            return jsonify({"status": "unauthorized"}), 401
+    try:
+        return jsonify(run_weekly_meeting())
+    except Exception as e:
+        logger.exception("run_weekly_meeting failed")
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
